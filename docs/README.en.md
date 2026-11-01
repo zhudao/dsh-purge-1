@@ -145,6 +145,7 @@ Thank you to the original author, code contributors, and everyone who provided r
     <td align="center" width="120"><a href="https://github.com/qianxuno"><img src="https://avatars.githubusercontent.com/u/179305118?s=112" width="56" height="56" alt="qianxuno" /><br /><sub>qianxuno</sub></a></td>
     <td align="center" width="120"><a href="https://github.com/TLcmmmm"><img src="https://avatars.githubusercontent.com/u/167976723?s=112" width="56" height="56" alt="TLcmmmm" /><br /><sub>TLcmmmm</sub></a></td>
     <td align="center" width="120"><a href="https://github.com/Tofu707"><img src="https://avatars.githubusercontent.com/u/178003727?s=112" width="56" height="56" alt="Tofu707" /><br /><sub>Tofu707</sub></a></td>
+    <td align="center" width="120"><a href="https://github.com/zhudao"><img src="https://avatars.githubusercontent.com/u/32268955?s=112" width="56" height="56" alt="zhudao" /><br /><sub>zhudao</sub></a></td>
   </tr>
 </table>
 <!-- CONTRIBUTORS:END -->
