@@ -1,13 +1,23 @@
 # 安装、升级与故障排查
 
-当前版本 **1.6.69**。面向用户与协助安装的 Agent。支持的安装器环境：Linux CLI/Web；macOS Desktop；Windows 11 的 PowerShell 5.1/7。完整 Windows 宿主补丁及界面验收与安装器测试分开，不能因安装通过就宣称全部功能正常。
+当前版本 **1.6.75**。面向用户与协助安装的 Agent。支持的安装器环境：Linux CLI/Web；macOS Desktop；Windows 11 的 PowerShell 5.1/7。完整 Windows 宿主补丁及界面验收与安装器测试分开，不能因安装通过就宣称全部功能正常。
 
 ## 安装前
 
 - 确认用户授权，读取实际 DSH 版本和应用路径，先打开一次完成 profile 初始化。
-- 默认数据目录 `~/.dsh`；Desktop 默认 profile `desktop`，Linux CLI/Web 安装器默认 `web`。不同目录/profile 必须显式指定，不能自动选另一个实例。
+- 默认数据目录 `~/.dsh`；旧 Desktop CLI 默认 profile `desktop`；带独立 `@deepseek-ai/dsh` CLI 的新桌面壳及 CLI/Web 默认 `web`。不同目录/profile 必须显式指定，不能自动选另一个实例。
 - 保留正在运行的任务；安装不会停止进程或自动重启。用户在任务结束后手动重开。
 - 不需要管理员权限或全局 Node/pnpm；Desktop 入口使用该应用的 Electron 运行时和 CLI。遇到权限问题先核对路径，不建议盲目提权。
+
+## 新桌面布局与更新镜像（1.6.75）
+
+Windows 的 `DSH Desktop.exe` 与旧 `DeepSeek Harness.exe` 都可作为候选；仍需核对包内 CLI 身份。新布局从 `@deepseek-ai/dsh/package.json` 的 `bin` 读取入口，沿用同一安装的 `harness-node-entry.mjs`、打包 pnpm 和锁恢复启动器。不要为了绕过“pnpm 找不到”安装全局 pnpm 或选另一份 DSH。若多个候选并存，用 `-DshExe` 明确指定。自定义 profile 始终用 `-Profile` / `--profile` 指定，缺少初始化时停止，不搬迁用户数据猜测匹配。
+
+`sealed_host: true` 表示在 `app.asar` 中识别到宿主，尚不是可写解包目录。诊断不再把它当作“没有宿主”，也不会把虚拟归档路径交给直接文件写入。已有解包目录损坏时，继续报告缺失或读取失败。
+
+插件的「更新通道」可保存可选 HTTPS 镜像前缀，如 `https://gh-proxy.org/`。镜像覆盖发行查询、raw 元数据与包传输；GitHub Token 不发给镜像，包括镜像发起的重定向。代理与镜像可同时使用，只影响插件更新请求，不改系统或模型代理。显式清空镜像后停用；旧配置未声明此字段时继续兼容 `PURGE_GH_MIRROR`。
+
+**镜像不是校验来源**：安装仍需经 GitHub 官方接口取得发行摘要，旧发行必要时读取官方 SHA256SUMS。可通过现有更新代理连接 GitHub。官方校验不可达时停止，不接受镜像自报摘要，不关闭 TLS 或 SHA256。首次安装脚本的下载路径与插件内更新通道分开，不能声称尚未安装的插件能读取其更新设置。
 
 ## 先区分官方入口和社区安装器
 
@@ -59,6 +69,36 @@ macOS 默认要求 `/Applications/DeepSeek Harness.app`。自定义安装位置�
 市场 JSON 首次安装先执行 DSH 的包管理器，插件尚未加载，无法利用插件内修复。可在 DSH 安装对话框选择 npm 官方源重试，或使用本版独立安装器。直接换 tarball 仍可能在宿主依赖校验阶段失败。不要声称我们已经修改了官方 DSH 安装器。
 
 `HEAD https://github.com/... UND_ERR_DESTROYED` 属 GitHub 网络问题。保留完整脱敏日志区分错误；切 npm 源不保证修复 GitHub 连接。
+
+## 启动告警：Cannot find package 'dsh-purge'
+
+宿主启动或面板报：
+
+```
+dsh: warning: 1 entry did not activate
+dsh-purge (dsh-purge): failed to import
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'dsh-purge' imported from <profile>
+```
+
+这条错误表示当前 profile 无法解析某个入口引用，**不能只凭错误文本认定是重复配置**。归档上游 README 的历史独立包示例若被照抄，可能留下指向旧包名的手工入口；依赖未安装、链接失效、选错 profile 或 bundle 未启用也可能造成导入失败。
+
+按以下顺序排查，不要卸载重装或按名称前缀批量删除：
+
+1. 确认报错进程的 DSH、home、profile，以及实际启用的 bundle。检查该 profile 的依赖、实际包的 `package.json` 和链接目标是否存在。社区包名是 `dsh-purge-community`；历史依赖别名 `dsh-purge` 若实际解析到社区包，也受支持，**不能仅凭别名就删除**。
+2. 修改前备份该 profile 的 `cordis.patch.yml`、`package.json` 和现有锁文件。保留完整错误、入口 ID 和解析路径用于核对，分享日志前脱敏。
+3. 只有确认 bundle 已提供对应入口、profile 又手工插入了同一个入口时，才迁移这一个重复项。将原项的 **全部 `config`（包括提示词、未知字段和显式 false/空字符串）** 合并到同 ID 的 profile 配置覆盖项；出现同名字段冲突时，先让用户决定保留哪一值，不以默认值覆盖。若原项还有无法确认含义的入口字段，先保留并报告，不擅自丢弃。
+4. 核对配置保留后，只移除已确认重复的那个插入项。一个 `insert` 容器可能还有其他插件，必须保留；只有容器变空时才可移除空容器。`dsh-purge-redteam*` 等是 bundle 的合法入口，**不能按前缀删除**，也不要直接修改已安装包里的 bundle 源文件。
+5. 若入口仅存在于 bundle，可在 profile 按同一个 `id` 添加配置覆盖，不再添加 `insert` 或 `name`。下面只是结构示例；实际迁移须使用用户原来的完整配置，不要照抄示例值覆盖：
+
+```yaml
+- id: dsh-purge
+  config:
+    autoUpdateOnStart: false
+```
+
+6. 核对最终有效入口、依赖解析和保留的配置后，由用户选择何时完整退出并重新打开 DSH，不自动重启。仍失败时，根据完整异常区分依赖、链接、profile 或服务故障，**不能认定还有重复入口而继续删除**。有歧义时停止迁移，保留备份和现场。
+
+安装器遇到不能安全判断的手工入口仍会拒绝迁移并保留配置；本文不增加自动删配置逻辑。更详细的配置合并说明见 [维护说明](maintenance-issue-53.md)。
 
 ## 失败、备份与回滚
 
