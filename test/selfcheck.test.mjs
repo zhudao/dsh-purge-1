@@ -283,3 +283,109 @@ test("#38 does not exempt arbitrary optional skips or required missing files",()
   assert.equal(mixed.state,"broken","an uncertain preset must not hide another confirmed failure");
   assert(mixed.broken.some(p=>p.id===71));
 });
+
+test("observation policy requires every active method in each host layout", async () => {
+  const { patchApplied } = await import("../lib/core/shared.mjs");
+  const patch = ALL_PATCHES.find(p => p.id === 17);
+  const [write, check] = patch.replacements;
+  const edit = "\teditIntent(target, actor) {\n\t\t// [dsh-purge] observation bypass: edits are unconditional (no read-first gate).\n\t\treturn void 0;\n\t}";
+  const delegations = ["edit", "delete"].map(verb => '\t' + verb + 'Intent(target, actor) {\n\t\treturn this.requirePresent(target, actor, "' + verb + '");\n\t}');
+  const policy = (...methods) => ["var ObservedStateGate = class {", ...methods, "};"].join("\n");
+  const old = policy(write.replace, edit);
+  const modern = policy(write.replace, ...delegations, check.replace);
+  for (const full of [old, modern]) {
+    assert.equal(patchApplied(full, patch), true);
+    assert.equal(patchApplied(full.replaceAll("\n", "\r\n"), patch), true);
+  }
+  for (const partial of [
+    policy(write.pattern, edit), policy(write.replace), policy(write.replace, "/*"+edit+"*/"),
+    policy(write.replace, ...delegations, check.pattern), policy(write.pattern, ...delegations, check.replace),
+    policy(write.replace, delegations[0], check.replace), policy(write.replace, edit, check.replace),
+    old.replace("return void 0;", "return this.get(actor, target);"), modern + "\n" + modern,
+    policy(write.replace, edit, "\teditIntent(other) { throw Error(); }"),
+  ]) assert.equal(patchApplied(partial, patch), false);
+});
+
+test("apply refuses a partial observation rewrite and keeps the original bytes", async t => {
+  const {applyPatches, patchStatusDetail} = await import("../lib/core.js");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "observation-transaction-"));
+  const home = path.join(root, "home");
+  const host = path.join(root, "node_modules/@deepseek-ai");
+  const file = path.join(host, "dsh-fs-observation-policy/lib/index.js");
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  fs.mkdirSync(home);
+  t.mock.method(process, "cwd", () => root);
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  t.after(() => {
+    if(previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+    fs.rmSync(root, {recursive:true, force:true});
+  });
+  const patch = ALL_PATCHES.find(p => p.id === 17);
+  for (const write of [patch.replacements[0].pattern, patch.replacements[0].replace]) {
+    const original = "var ObservedStateGate = class {\n" + write + "\n\teditIntent(target, actor) { throw Error(); }\n};";
+    fs.writeFileSync(file, original);
+    const [result] = await applyPatches(host, [patch]);
+    assert.match(result.status, /incomplete_observation_policy|pattern_not_found/);
+    const report = await patchStatusDetail(host, [patch], {dshHome:home,surface:"desktop"});
+    assert.match(report.status[17], /pending|drifted/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  }
+});
+
+test("two applies compose branding and read-only changes on a clean or upgraded policy", async t => {
+  const { applyPatches, patchStatusDetail, applyReplacementsToText } = await import("../lib/core.js");
+  const root = fakeHome();
+  t.after(() => root.close());
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = root.home;
+  t.after(() => { if (previous === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previous; });
+  const host = path.join(root.home, "node_modules/@deepseek-ai");
+  const file = path.join(host, "dsh-sandbox-policy/lib/index.js");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const native = fs.readFileSync(new URL("./fixtures/sandbox-policy-rc5.js.txt", import.meta.url), "utf8");
+  const patches = ALL_PATCHES.filter(p => [61,93].includes(p.id));
+  const brand = patches.find(p => p.id === 93);
+  const approval = patches.find(p => p.id === 61);
+  const brandedOnly = applyReplacementsToText(native, brand, file).text;
+  const approvalOnly = applyReplacementsToText(native, approval, file).text;
+  assert.notEqual(brandedOnly, native);
+  assert.notEqual(approvalOnly, native);
+  for (const start of [native, brandedOnly, approvalOnly]) {
+    fs.writeFileSync(file, start);
+    for (let i = 0; i < 2; i++) {
+      const rows = await applyPatches(host, patches);
+      assert.ok(rows.every(r => ["already","applied"].includes(r.status)), JSON.stringify(rows));
+      if (i) assert.ok(rows.every(r => r.status === "already"));
+      const disk = await patchStatusDetail(host, patches, {dshHome:root.home,surface:"desktop"});
+      assert.deepEqual(disk.status, {61:"applied",93:"applied"});
+    }
+  }
+  const complete = fs.readFileSync(file,"utf8");
+  for (const [partial,id] of [
+    [complete.replace("Current file policy: workspace-write", "Current DSH file policy: workspace-write"),93],
+    [complete.replace("approval is auto-granted", "unknown phrase"),61],
+    [native + "\n/*\n" + complete + "\n*/",61],
+  ]) {
+    fs.writeFileSync(file,partial);
+    assert.notEqual((await patchStatusDetail(host,patches,{dshHome:root.home,surface:"desktop"})).status[id],"applied");
+  }
+});
+
+test("a clean rc.5 observation policy and either previously migrated half converge on two applies", async () => {
+  const {applyReplacementsToText} = await import("../lib/core.js");
+  const {patchApplied} = await import("../lib/core/shared.mjs");
+  const p = ALL_PATCHES.find(row => row.id === 17);
+  const native = fs.readFileSync(new URL("./fixtures/observed-state-rc5.js.txt", import.meta.url), "utf8");
+  const [write,,edit] = p.replacements;
+  for (const start of [native, native.replace(write.pattern,write.replace), native.replace(edit.pattern,edit.replace)]) {
+    assert.equal(patchApplied(start,p),false);
+    const first = applyReplacementsToText(start,p);
+    assert.equal(first.changed,true);
+    assert.equal(patchApplied(first.text,p),true);
+    const second = applyReplacementsToText(first.text,p);
+    assert.equal(second.changed,false);
+    assert.equal(second.text,first.text);
+  }
+});

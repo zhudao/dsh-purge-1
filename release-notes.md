@@ -1,3 +1,120 @@
+# 1.6.84
+
+- `unauth-exploit` 现在说明如何通过已有的授权测试入口验证命令执行。每次生成新的挑战，分别提供 POSIX 和 Windows PowerShell 命令。仅能写入文件时，记录为文件写权限。
+- 随包新增 `scripts/exec-proof.mjs`，在操作端生成挑战、核对原始输出。它不连接目标，也不认证执行来源；仍须核对入口和退出状态。此次没有重新加入旧文档的 WebShell 和持久化命令示例。
+- 已在 Mac 和 Windows 4090 隔离环境运行技能中的命令；正确响应通过，原样回显、上一轮响应、混杂输出、空输出及静态文本均被拒绝。此次未修改宿主补丁、用户设置、预设和安装／回滚流程。
+
+1.6.83 未正式发行：Windows CI 的测试提取命令时只识别 LF。1.6.84 同时检查 LF 和 CRLF。
+
+Windows 从更旧版本迁移时，Defender 仍可能拦截旧包文件的完整快照；本版未修复或绕过该限制。见 [1.6.82 迁移说明](https://github.com/kingcharleslzy-ai/dsh-purge/releases/tag/v1.6.82)。
+
+# 1.6.82
+
+- Windows Desktop 换包助手现在能在宿主的 Job Object 结束后继续等待。用户手动退出后，助手校验原归档、保存备份并完成换包。见 [#89](https://github.com/kingcharleslzy-ai/dsh-purge/issues/89)。
+- pnpm 工作区的 Web 实例从当前运行的 CLI 包读取实际 bin 入口。即使工作区链接解析到 `apps/cli`，升级和回滚也能找到同一个实例及 profile。见 [#93](https://github.com/kingcharleslzy-ai/dsh-purge/issues/93)。
+- 随包技能 `unauth-exploit` 改用静态文本演示文件写权限，移除了文档中的可执行 WebShell 和持久化命令示例。原技能名称和工具入口继续可用。
+
+## 已实测通过
+
+| 环境 | 验收结果 |
+| --- | --- |
+| macOS，DSH rc.2 Web 工作区 | 分别从公开的 1.6.60、1.6.81 完整安装包升级到 1.6.82，再各自回滚。逐文件核对了旧包的 247、316 个文件，并保留备份后编辑的测试提示词。 |
+| Windows 11，RTX 4090，Defender 实时防护开启 | 用修订后文档构建的完整预发行测试包 1.6.82-rc.1 升级到 1.6.82，再从快照回滚到 rc.1。三个阶段均通过全部 316 个文件的 SHA256 校验。另测了 1.6.82 的完整安装、同版重装和快照回滚。rc.1 仅用于对照，未公开发行。 |
+| Windows 11，非管理员 PowerShell 5.1，隔离 Electron | 重现了旧助手随 Job 结束而退出。新版助手等待测试宿主完整退出后成功换包，从备份还原的 Electron 归档与原件 SHA256 一致。 |
+
+## Windows 从公开旧版迁移的已知限制
+
+1.6.60 与 1.6.81 的公开包仍含原始 `skills/redteam/unauth-exploit.md`。在受测机器上，Defender 将该内容记录为 `Backdoor:PHP/Chopper.E!dha`。有两个实际阻断位置：
+
+- **安装旧版时**，pnpm 向内容存储写入旧文件即可能失败。干净 profile 添加公开 1.6.81 时遇到了这一步。
+- **旧版已安装时**，升级前创建快照需要读取并复制旧文件。公开 1.6.60 在此处被拦，升级停止。从含原始示例的安装创建回滚前快照也可能在同一步停止。
+
+使用现有渠道更新 Defender 安全情报至 1.463.137.0 后，公开旧版往返仍未在这台 Windows 机器上通过。遇到上述情况请保留错误和原备份，核对 Defender 保护历史中的时间、文件名和检测名称。维护器需要完整快照；请勿跳过文件或把残缺备份用于回滚。
+
+[完整实测记录与修复范围（PR #148）](https://github.com/kingcharleslzy-ai/dsh-purge/pull/148)
+
+# 1.6.81
+
+- #146 接入 8 个证据账本与待查问题工具。引用和哈希匹配仅代表内容关联或一致；关闭待核实记录需要显式提交核实结果。旧记录保留，缺少核实记录的旧引用需重新核实。
+- 读取时核对实际内容。账本损坏或查询失败会报告异常；旧库可迁移至支持“撤回”的状态，操作不存在的记录会报告失败。
+- 截图及文件按当前靶标目录导入，可在其 `incoming/` 目录暂存，或直接传入内容。拒绝路径越界及指向外部的符号链接和 Windows 目录联接。
+- 已在 Mac 和 Windows 4090 的隔离环境实际调用官方 DSH 工具注册表，并验证外部标记文件完整。升级无需清空用户配置或历史证据。
+
+# 1.6.80
+
+- #143、#144：策略文案已去除品牌词的旧安装仍能完成 #61。#93 连续应用时校验三条策略文案；只匹配一部分时继续报告异常。
+- #144：首次安装到 DSH 0.2.1-rc.5 或从旧版升级时，#17 同时识别独立的写入和编辑方法。0.2.2-rc.1 继续检查共享的编辑和删除方法。未知方法保持原文件。
+- #145：Windows 换包测试保留助手退出状态、备份是否存在和原文件内容的断言；锁冲突和备份缺失仍须明确失败。感谢 PR 贡献者。
+
+---
+
+# 1.6.79
+
+## Windows CI 夹具路径修复（不是功能变更）
+
+1.6.77 的 release workflow 在 `windows-latest` 上失败，报 `windows-handoff-errors.ps1:24 FileNotFoundException`。定位结果：测试用 `path.resolve('test/fixtures/...')` 找夹具，依赖 `process.cwd()`；Windows runner 上 cwd 被外层脚本改掉后，拼出的绝对路径不存在，PowerShell 直接报找不到文件。同一 commit 的 macOS / ubuntu 全绿，1.6.78 的 release 也正常产出，说明与补丁逻辑无关。
+
+- `test/windows-electron-handoff.test.mjs` 改为用 `fileURLToPath(new URL('./fixtures/...', import.meta.url))` 定位，与测试文件绑定而非与启动目录绑定。
+- 新增 `test/fixture-paths.test.mjs`：扫描全部测试文件，禁止 `path.resolve('test/...')` 与 `process.cwd() + 'test/...'` 这类写法，并断言 Windows 交接夹具确实存在。
+
+## 验证
+
+`npm test` **544 通过 / 0 失败**。本轮不改任何宿主补丁、权限或提示词。
+
+# 1.6.78
+
+## 红队模块补两处上游能力
+
+上一轮我说"项目没有红队模式"是错的——`lib/redteam` / `presets/redteam` / `skills/redteam` 一直都在。真正落后的是两个新文件，这次补上：
+
+- **`lib/redteam/atomic-write.js`**：先写临时文件 + fsync 再 rename。以前直接 `writeFileSync` 覆盖设置/平台配置，写到一半崩溃会留下半截 JSON，读侧又把解析错误吞成默认值，用户设置就无声丢了。`settings.js` 与 `platform-config.js` 已切到原子写。
+- **`lib/redteam/evidence-ledger.mjs`**：红队证据账本。四档置信度 `claimed` / `observed` / `derived` / `inferred`，`claimed` 与 `inferred` 永远需要核实；每条证据带 `ev_id = sha256(规范化语义)`，改一个字哈希就变，能验证"子代理说 A、库里记的是不是真的 A"。另有 `UnknownRegistry` 记"还没打完、证据不足"的问题，同一问题规范化后得到同一个 `unk_id`。
+
+## 两处没照抄
+
+- **路径校验**：上游 `validate.js` 用 `realish()` 自己防软链接穿越；我们保留已有的 `assertWithinRoots()`（统一走 `lib/path-boundary.js`），实现更强，不换回上游版本。
+- **红队主逻辑**（`store-core.js` 等 651 行差异）本轮未合并，留到下一轮单独评估。
+
+## 验证
+
+- 新增 `test/redteam-evidence-ledger.test.mjs`（语义哈希、置信度契约、非法置信度被拒、未知问题去重）与 `test/redteam-atomic-write.test.mjs`（替换成功无残留、失败保留原文件），两条都已接进 `npm test`。
+- `npm test` **542 通过 / 0 失败**。
+
+# 1.6.77
+
+## 从上游 1.1.90 取回两条去品牌补丁
+
+上游这波（1.1.84–1.1.90）其余内容集中在红队体系、web 重启回收、Windows 换包，本 fork 都已有等价或更优实现。真正值得取的是两条提示词层补丁：
+
+- **#93 `SANDBOX_POLICY_BRAND_NEUTRAL`**：`Current DSH file policy:` → `Current file policy:` 等 3 处品牌词。**放行语义原样保留**（`approval is auto-granted` 一字未动），只是模型读到的策略描述不再自称是哪家产品。
+- **#94 `SKILL_BADGE_DESCRIPTION_NEUTRAL`**：官方徽章技能不再要求模型往交付物/PR 里塞 `powered by dsh`，改成中性署名描述。
+
+### 编号说明
+
+上游的这两条是 #89/#90，但本 fork 的 #89/#90 已被 `ASK_USER_WAIT_CAPPED` 与 `RESTORE_NATIVE_STEERING` 占用，照抄会互相干扰（试算时确实触发了 #90 冲突告警）。因此改用空闲 id **93/94**。
+
+### 契约调整
+
+- 新增 `multiHit: true`：允许某个锚点在原始宿主里合法出现多次（#93 的文案在普通与 PTC 两套描述里各有一份），`test/expect-contract.test.mjs` 的真机唯一性探针会跳过它，其余锚点仍要求恰好一次。
+- 这两条的 `replacements` 不钉 `expect`：已迁移的文件里锚点次数为 0，钉死会让重复「应用」永远 pending；marker 落地后由 `patchApplied` 短路成 `already`。
+
+## 验证
+
+- 真机 0.2.2-rc.1：86 条 → 74 applied / 2 disabled / 6 na / 4 skipped，**0 drift**；
+- `grep` 复核：#93 三处 `Current file policy:` 生效，#94 `powered by dsh` 归零、新描述就位；
+- 破甲链路复测：审批、沙箱、fs 意图、run_code 教学等闸门补丁状态未变；
+- `npm test` 536 通过 / 0 失败。
+
+# 1.6.76
+
+- #140：修复 DSH 0.2.2-rc.1 将 `list_agents` 并入主模块后红队和无限制预设加载失败的问题。注册时识别同组的工具提供者，沿用用户预设、提示词、名称和子任务策略。旧宿主继续使用独立入口。
+- #139：自检识别 0.2.1-rc.5 的旧双方法布局。仅写入或仅编辑生效、遗留注释以及未识别的实现都不会判为已应用。0.2.2-rc.1 还检查编辑和删除是否走共同的方法。
+- #141：观察策略和提示词注入分别诊断。恢复官方 0.2.1-rc.5 的 #40（完整预设保留附加提示词）和 #74（首次组装前调用准备函数）。保留原版上下文过滤、工具和错误传播。现场仍需逐项结果，issue 保持开放。
+
+**验收边界**：Mac 和 Windows 4090 的独立 DSH 0.2.2-rc.1 均已实际挂载两个 Agent，检查到 `list_agents`，升级前后四份自定义 YAML 逐字节一致。Windows 旧包首次启动时未写出红队预设，因此该机迁移测试从公开旧包初始化了这份用户预设。Windows 全新安装早期受 Defender 隔离影响（19/23）；保持防护设置后再次实测落盘 23/23。#139 在两个平台分别运行了两代官方观察策略的各四种状态。
+
+---
+
 # 1.6.75
 
 修复安装定位、市场兼容声明和镜像更新通道，保留用户配置与现有功能，不自动重启。
